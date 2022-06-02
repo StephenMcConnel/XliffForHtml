@@ -740,6 +740,7 @@ namespace XliffForHtml
 				var oldXliff = new XmlDocument();
 				oldXliff.Load(oldFile);
 				CopyMissingNotesToNewXliff(newXliff, oldXliff);
+				CopyMissingUnitsAsObsoleteToNewXliff(newXliff, oldXliff);
 			}
 			WriteXliffFile(newXliff, outputFile);
 		}
@@ -781,6 +782,57 @@ namespace XliffForHtml
 					var newNote = newXliff.CreateElement("note");
 					newNote.InnerXml = oldNote.InnerXml;
 					tu.AppendChild(newNote);
+				}
+			}
+		}
+
+		/// <summary>
+		/// Any trans-unit elements found in the old xliff document that are missing in the new xliff document
+		/// are copied to the new xliff document, but marked as "obsolete".
+		/// </summary>
+		public static void CopyMissingUnitsAsObsoleteToNewXliff(XmlDocument newXliff, XmlDocument oldXliff)
+		{
+			// newXliff doesn't need a namespace manager because of the way HtmlXliff.Extract()
+			// creates the document.  However, oldXliff does need a namespace manager because it
+			// is created by loading existing XML that specifies namespaces.  Don't blame me for
+			// this baffling difference.
+			var oldNsmgr = new XmlNamespaceManager(oldXliff.NameTable);
+			oldNsmgr.AddNamespace("x", kXliffNamespace);
+			oldNsmgr.AddNamespace("html", kHtmlNamespace);
+			oldNsmgr.AddNamespace("sil", kSilNamespace);
+
+			var newUnits = newXliff.SelectNodes("/xliff/file/body//trans-unit");
+			var currentIds = new HashSet<string>();
+			foreach (XmlNode tu in newUnits)
+			{
+				var id = tu.Attributes["id"].Value;
+				currentIds.Add(id);
+			}
+			var oldUnits = oldXliff.SelectNodes("/x:xliff/x:file/x:body//x:trans-unit");
+			var bodyNew = newXliff.SelectSingleNode("/xliff/file/body");
+			foreach (XmlNode tuOld in oldUnits)
+			{
+				var id = tuOld.Attributes["id"].Value;
+				if (currentIds.Contains(id))
+					continue;
+				var tuNew = newXliff.CreateElement("trans-unit");
+				tuNew.InnerXml = tuOld.InnerXml;
+				bodyNew.AppendChild(tuNew);
+				var oldNotes = tuNew.SelectNodes("./note");
+				var alreadyObsolete = false;
+				foreach (XmlNode note in oldNotes)
+				{
+					if (note.InnerText.ToLowerInvariant().Contains("obsolete"))
+					{
+						alreadyObsolete = true;
+						break;
+					}
+				}
+				if (!alreadyObsolete)
+				{
+					var newNoteForObsolete = newXliff.CreateElement("note");
+					newNoteForObsolete.InnerText = "Obsolete for current Bloom";
+					tuNew.AppendChild(newNoteForObsolete);
 				}
 			}
 		}
